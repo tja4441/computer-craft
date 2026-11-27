@@ -36,7 +36,12 @@ while true do
             energy = matrix.getEnergy(),
             energy_percent = matrix.getEnergyFilledPercentage()
         }
-        modem.transmit(4, 4, data)
+        local packet = {
+            type = "MATRIX_TELEMETRY",
+            timestamp = os.epoch("utc"),
+            payload = data
+        }
+        modem.transmit(4, 4, packet)
     end)
 
     if not ok then

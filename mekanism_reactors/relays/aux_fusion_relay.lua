@@ -22,6 +22,7 @@ if tritium_pipe and deuterium_pipe then
         }
         local packet = {
             type = "AUX_TELEMETRY",
+            timestamp = os.epoch("utc"),
             payload = data
         }
         modem.transmit(3, 3, packet)

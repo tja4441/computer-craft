@@ -38,7 +38,12 @@ while true do
             energy = turbine.getEnergyFilledPercentage(),
             energy_rate = turbine.getProductionRate()
         }
-        modem.transmit(2, 2, data)
+        local packet = {
+            type = "TURBINE_TELEMETRY",
+            timestamp = os.epoch("utc"),
+            payload = data
+        }
+        modem.transmit(2, 2, packet)
     end)
 
     if not ok then

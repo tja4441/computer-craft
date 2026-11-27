@@ -62,8 +62,9 @@ local function main()
     print("Turbine Disconnected")
     term.setTextColor(colors.white)
     while true do
-        local event, side, channel, replyChannel, data = os.pullEvent("modem_message")
-        if channel == 2 and type(data) == "table" then
+        local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
+        if channel == 2 and packet.type == "TURBINE_TELEMETRY" then
+            local data = packet.payload
             term.clear()
             term.setCursorPos(1,1)
             display_turbine_stats(data.steam, data.steam_rate, data.energy, data.energy_rate)

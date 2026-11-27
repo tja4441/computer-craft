@@ -66,8 +66,9 @@ local function main()
     print("Induction Matrix Disconnected")
     term.setTextColor(colors.white)
     while true do
-        local event, side, channel, replyChannel, data = os.pullEvent("modem_message")
-        if channel == 4 and type(data) == "table" then
+        local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
+        if channel == 4 and packet.type == "MATRIX_TELEMETRY" then
+            local data = packet.payload
             term.clear()
             term.setCursorPos(1,1)
             display_matrix_stats(data.energy, data.energy_percent)

@@ -44,6 +44,7 @@ local function relay_telemetry()
             }
             local packet = {
                 type = "REACTOR_TELEMETRY",
+                timestamp = os.epoch("utc"),
                 payload = data
             }
             modem.transmit(1, 1, packet)

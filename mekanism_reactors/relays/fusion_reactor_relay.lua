@@ -43,6 +43,7 @@ while true do
         }
         local packet = {
             type = "REACTOR_TELEMETRY",
+            timestamp = os.epoch("utc"),
             payload = data
         }
         modem.transmit(3, 3, packet)
