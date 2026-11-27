@@ -1,9 +1,16 @@
+-- turbine_mon.lua
+--
+-- Receives and interprets transmissions from turbine_relay.lua,
+-- then prints information to the terminal
+
+local settings = {
+    transmission_channel = 2,
+    transmission_timeout_ms = 10000
+}
+
+-- Helper Functions
 local function J_to_FE(J)
     return 0.4*J
-end
-
-local function K_to_C(K)
-    return K - 273.15
 end
 
 local function f_tostring_units(float)
@@ -34,8 +41,9 @@ local function mf_tostring_units(float)
     end
 end
 
+-- Display Functions
 local function display_turbine_stats(steam, steam_rate, energy, energy_rate)
-    print("Turbine Status: ")
+    print("Turbine: ")
 
     print("\nSteam: " .. string.format("%.2f%%", steam*100))
     print("Steam Rate: " .. mf_tostring_units(steam_rate) .. "B/t")
@@ -43,51 +51,49 @@ local function display_turbine_stats(steam, steam_rate, energy, energy_rate)
     print("Energy Rate: " .. f_tostring_units(J_to_FE(energy_rate)) .. "FE/t")
 end
 
-local function main()
-    local modem 
-    if pocket then
-        modem = peripheral.wrap("back")
-    else
-        modem = peripheral.wrap("top")
-    end
-    
-    if modem then
-        modem.open(2)
-    else
-        print("No modem found... terminating program")
-        return
-    end
-
-    term.setTextColor(colors.red)
-    print("Turbine Disconnected")
+local function display_turbine_timeout(last_transmission_time)
+    write("Turbine: ")
+    term.setTextColor(colors.yellow)
+    print("\nTIMEOUT")
     term.setTextColor(colors.white)
-    while true do
-        local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
-        if channel == 2 and packet.type == "TURBINE_TELEMETRY" then
-            local data = packet.payload
-            term.clear()
-            term.setCursorPos(1,1)
-            display_turbine_stats(data.steam, data.steam_rate, data.energy, data.energy_rate)
-        end
-    end
+
+    print("\nTime since last packet:")
+    print(time_tostring(os.epoch("utc") - last_transmission_time))
 end
 
-local function wait_for_quit()
-    local heldKeys = {}
+-- Main Program Loop
+local steam = 0.0
+local steam_rate = 0.0
+local energy = 0.0
+local energy_rate = 0.0
 
-    while true do
-        local event, key = os.pullEvent()
+local last_packet_time = 0
 
-        if event == "key" then
-            heldKeys[key] = true
-
-            if (heldKeys[keys.leftCtrl] or heldKeys[keys.rightCtrl]) and heldKeys[keys.q] then
-                break
-            end
-        elseif event == "key_up" then
-            heldKeys[key] = nil
-        end
-    end
+local modem = peripheral.find("modem")
+if modem then
+    modem.open(settings.transmission_channel)
+else
+    print("No modem found... terminating program")
+    return
 end
 
-parallel.waitForAny(main, wait_for_quit)
+while true do
+    local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
+    if channel == settings.transmission_channel and packet.type == "TURBINE_TELEMETRY" then
+        last_packet_time = packet.timestamp
+        local data = packet.payload
+
+        steam = data.steam
+        steam_rate = data.steam_rate
+        energy = data.energy
+        energy_percent = data.energy_percent
+    end
+    term.clear()
+    term.setCursorPos(1,1)
+
+    if os.epoch("utc") - last_packet_time <= settings.transmission_timeout_ms then
+        display_turbine_stats(data.steam, data.steam_rate, data.energy, data.energy_rate)
+    else
+        display_turbine_timeout(last_packet_time)
+    end
+end

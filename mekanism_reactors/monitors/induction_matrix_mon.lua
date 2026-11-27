@@ -1,3 +1,14 @@
+-- induction_matrix_mon.lua 
+--
+-- Receives and interprets transmissions from induction_matrix_relay.lua,
+-- then prints information to the terminal
+
+local settings = {
+    transmission_channel = 4,
+    transmission_timeout_ms = 10000
+}
+
+-- Helper Functions
 local function J_to_FE(J)
     return 0.4*J
 end
@@ -31,67 +42,62 @@ function createDifferentiator(initialValue)
     end
 end
 
-local delta = createDifferentiator(0.0)
-local delta_percent = createDifferentiator(0.0)
-
+-- Display Functions
 local function display_matrix_stats(energy, energy_percent)
-    print("Induction Matrix Status: ")
-
+    print("Induction Matrix: ")
+    
     print("\nEnergy: " .. f_tostring_units(J_to_FE(energy)) .. "FE")
     print("Energy %: " .. string.format("%.2f%%", energy_percent*100))
-
+    
     local net_change = delta(energy)
     local net_change_percent = delta_percent(energy_percent)
-
+    
     print("\nNet Change: " .. f_tostring_units(J_to_FE(net_change)) .. "FE/s")
     print("Net Change %: " .. string.format("%.2f%%", net_change_percent*100))
 end
 
-local function main()
-    local modem 
-    if pocket then
-        modem = peripheral.wrap("back")
-    else
-        modem = peripheral.wrap("top")
-    end
-    
-    if modem then
-        modem.open(4)
-    else
-        print("No modem found... terminating program")
-        return
-    end
-
-    term.setTextColor(colors.red)
-    print("Induction Matrix Disconnected")
+local function display_matrix_timeout(last_transmission_time)
+    write("Induction Matrix: ")
+    term.setTextColor(colors.yellow)
+    print("\nTIMEOUT")
     term.setTextColor(colors.white)
-    while true do
-        local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
-        if channel == 4 and packet.type == "MATRIX_TELEMETRY" then
-            local data = packet.payload
-            term.clear()
-            term.setCursorPos(1,1)
-            display_matrix_stats(data.energy, data.energy_percent)
-        end
-    end
+
+    print("\nTime since last packet:")
+    print(time_tostring(os.epoch("utc") - last_transmission_time))
 end
 
-local function wait_for_quit()
-    local heldKeys = {}
+-- Main Program Loop
+local delta = createDifferentiator(0.0)
+local delta_percent = createDifferentiator(0.0)
 
-    while true do
-        local event, key = os.pullEvent()
+local energy = 0.0
+local energy_percent = 0.0
 
-        if event == "key" then
-            heldKeys[key] = true
+local last_packet_time = 0
 
-            if (heldKeys[keys.leftCtrl] or heldKeys[keys.rightCtrl]) and heldKeys[keys.q] then
-                break
-            end
-        elseif event == "key_up" then
-            heldKeys[key] = nil
-        end
-    end
+local modem = peripheral.find("modem")
+if modem then
+    modem.open(settings.transmission_channel)
+else
+    print("No modem found... terminating program")
+    return
 end
 
-parallel.waitForAny(main, wait_for_quit)
+while true do
+    local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
+    if channel == settings.transmission_channel and packet.type == "MATRIX_TELEMETRY" then
+        last_packet_time = packet.timestamp
+        local data = packet.payload
+
+        energy = data.energy
+        energy_percent = data.energy_percent
+    end
+    term.clear()
+    term.setCursorPos(1,1)
+    
+    if os.epoch("utc") - last_packet_time <= settings.transmission_timeout_ms then
+        display_matrix_stats(energy, energy_percent)
+    else
+        display_matrix_timeout(last_packet_time)
+    end
+end

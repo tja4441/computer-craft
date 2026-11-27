@@ -1,7 +1,14 @@
-local function J_to_FE(J)
-    return 0.4*J
-end
+-- fission_reactor_mon.lua
+--
+-- Receives and interprets transmissions from fission_reactor_relay.lua and aux_fission_relay.lua,
+-- then prints information to the terminal
 
+local settings = {
+    transmission_channel = 1,
+    transmission_timeout_ms = 10000
+}
+
+-- Helper Functions
 local function K_to_C(K)
     return K - 273.15
 end
@@ -34,6 +41,28 @@ local function mf_tostring_units(float)
     end
 end
 
+local function time_tostring(ms)
+    local sec = math.floor(ms/1000)
+    if sec < 60 then
+        return sec .. "s"
+    elseif sec < 3600 then
+        local m = math.floor(sec / 60)
+        local s = sec % 60
+        return string.format("%dm %ds", m, s)
+    elseif sec < 86400 then
+        local h = math.floor(sec / 3600)
+        local m = math.floor((sec % 3600) / 60)
+        local s = sec % 60
+        return string.format("%dh %dm %ds", h, m, s)
+    else
+        local d = math.floor(sec / 86400)
+        local h = math.floor((sec % 86400) / 3600)
+        local m = math.floor((sec % 3600) / 60)
+        return string.format("%dd %dh %dm", d, h, m)
+    end
+end
+
+-- Display Functions
 local function display_reactor_stats(active, temp, damage, burn_rate, heating_rate, coolant, auto_scrammed, scram_reason)
     write("Fission Reactor: ")
     if active then
@@ -56,88 +85,104 @@ local function display_reactor_stats(active, temp, damage, burn_rate, heating_ra
     print("Coolant: " .. string.format("%.2f%%", coolant*100))
 end
 
+local function display_reactor_timeout(last_transmission_time)
+    write("Fission Reactor: ")
+    term.setTextColor(colors.yellow)
+    print("\nTIMEOUT")
+    term.setTextColor(colors.white)
+
+    print("Time since last packet:")
+    print(time_tostring(os.epoch("utc") - last_transmission_time))
+    print("") -- maintain spacing
+    print("")
+    print("")
+end
+
 local function display_aux_stats(fissile_fuel, nuclear_waste, spent_waste)
     print("Fissile Fuel %: " .. string.format("%.2f%%", fissile_fuel*100))
     print("Nuclear Waste %: " .. string.format("%.2f%%", nuclear_waste*100))
     print("Spent Waste %: " .. string.format("%.2f%%", spent_waste*100))
 end
 
-local function main()
-    local modem 
-    local auto_scrammed = false
-    local scram_reason = ""
-
-    local active = false
-    local temp = 0.0
-    local damage = 0.0
-    local burn_rate = 0.0
-    local heating_rate = 0.0
-    local coolant = 0.0
-    local fissile_fuel = 0.0
-    local nuclear_waste = 0.0
-    local spent_waste = 0.0
-
-    if pocket then
-        modem = peripheral.wrap("back")
-    else
-        modem = peripheral.wrap("top")
-    end
-
-    if modem then
-        modem.open(1)
-    else
-        print("No modem found... terminating program")
-        return
-    end
-
-    term.setTextColor(colors.red)
-    print("Fission Reactor Disconnected")
+local function display_aux_timeout(last_transmission_time)
+    write("Aux. Telemetry: ")
+    term.setTextColor(colors.yellow)
+    print("\nTIMEOUT")
     term.setTextColor(colors.white)
-    while true do
-        local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
-        if channel == 1 and packet.type == "SCRAM" then
-            auto_scrammed = true
-            scram_reason = packet.payload
-        elseif channel == 1 and packet.type == "REACTOR_TELEMETRY" then
-            data = packet.payload
-            if data.active then
-                auto_scrammed = false
-            end
-            active = data.active
-            temp = data.temp
-            burn_rate = data.burn_rate
-            heating_rate = data.heating_rate
-            coolant = data.coolant
-        elseif channel == 1 and packet.type == "AUX_TELEMETRY" then
-            data = packet.payload
-            fissile_fuel = data.fissile_fuel
-            nuclear_waste = data.nuclear_waste
-            spent_waste = data.spent_waste
+
+    print("Time since last packet:")
+    print(time_tostring(os.epoch("utc") - last_transmission_time))
+end
+
+-- Main Program Loop
+local auto_scrammed = false
+local scram_reason = ""
+
+local active = false
+local temp = 0.0
+local damage = 0.0
+local burn_rate = 0.0
+local heating_rate = 0.0
+local coolant = 0.0
+local fissile_fuel = 0.0
+local nuclear_waste = 0.0
+local spent_waste = 0.0
+
+local last_packet_time = 0
+local last_aux_packet_time = 0
+
+local modem = peripheral.find("modem")
+if modem then
+    modem.open(settings.transmission_channel)
+else
+    print("No modem found... terminating program")
+    return
+end
+
+while true do
+    -- Check for incoming packet
+    local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
+    if channel == settings.transmission_channel and packet.type == "SCRAM" then
+        auto_scrammed = true
+        scram_reason = packet.payload
+    elseif channel == settings.transmission_channel and packet.type == "REACTOR_TELEMETRY" then
+        last_packet_time = packet.timestamp
+        data = packet.payload
+        
+        if data.active then
+            auto_scrammed = false
         end
-        term.clear()
-        term.setCursorPos(1, 1)
+        
+        active = data.active
+        temp = data.temp
+        burn_rate = data.burn_rate
+        heating_rate = data.heating_rate
+        coolant = data.coolant
+    elseif channel == settings.transmission_channel and packet.type == "AUX_TELEMETRY" then
+        last_aux_packet_time = packet.timestamp
+        data = packet.payload
+        
+        fissile_fuel = data.fissile_fuel
+        nuclear_waste = data.nuclear_waste
+        spent_waste = data.spent_waste
+    end
+    
+    -- Print to screen
+    term.clear()
+    term.setCursorPos(1, 1)
+    local current_time = os.epoch("utc")
+
+    if current_time - last_packet_time <= settings.transmission_timeout_ms then
         display_reactor_stats(active, temp, damage, burn_rate, heating_rate, coolant, auto_scrammed, scram_reason)
+    else
+        display_reactor_timeout(last_packet_time)
+    end
+
+    if current_time - last_aux_packet_time <= settings.transmission_timeout_ms then
         print("")
         display_aux_stats(fissile_fuel, nuclear_waste, spent_waste)
+    else
+        -- no empty line, need extra room
+        display_aux_timeout(last_aux_packet_time)
     end
 end
-
-local function wait_for_quit()
-    local heldKeys = {}
-
-    while true do
-        local event, key = os.pullEvent()
-
-        if event == "key" then
-            heldKeys[key] = true
-
-            if (heldKeys[keys.leftCtrl] or heldKeys[keys.rightCtrl]) and heldKeys[keys.q] then
-                break
-            end
-        elseif event == "key_up" then
-            heldKeys[key] = nil
-        end
-    end
-end
-
-parallel.waitForAny(main, wait_for_quit)

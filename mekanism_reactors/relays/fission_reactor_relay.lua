@@ -1,3 +1,15 @@
+-- fission_reactor_relay.lua
+--
+-- Relays reactor telemetry to fission_reactor_mon.lua
+-- Also listens for SCRAM commands to remotely shut down the reactor
+
+local settings = {
+    transmission_channel = 1,
+    transmission_period_s = 1.0,
+    reactor_detection_retries = 4,
+    reactor_detection_interval_s = 5.0
+}
+
 local modem = peripheral.find("modem")
 
 if not modem then
@@ -15,11 +27,11 @@ local function getFormedFissionReactor()
 end
 
 local reactor = getFormedFissionReactor()
-local detection_retries = 4
+local detection_retries = settings.reactor_detection_retries
 
 while not reactor and detection_retries > 0 do
     print("Formed Fission Reactor not found... Trying again (" .. detection_retries .. " left)")
-    sleep(5.0)
+    sleep(settings.reactor_detection_interval_s)
     reactor = getFormedFissionReactor()
     detection_retries = detection_retries - 1
 end
@@ -47,7 +59,7 @@ local function relay_telemetry()
                 timestamp = os.epoch("utc"),
                 payload = data
             }
-            modem.transmit(1, 1, packet)
+            modem.transmit(settings.transmission_channel, settings.transmission_channel, packet)
         end)
 
         if not ok then
@@ -55,7 +67,7 @@ local function relay_telemetry()
             return
         end
 
-        sleep(1)
+        sleep(settings.transmission_period_s)
     end
 end
 
@@ -63,7 +75,7 @@ local function listen_for_commands()
     while true do
         local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
 
-        if channel == 1 and packet.type == "SCRAM" then
+        if channel == settings.transmission_channel and packet.type == "SCRAM" then
             pcall(function()
                 if reactor.getStatus() then
                     print("REMOTE SCRAM RECEIVED! Shutting down reactor...")
@@ -74,5 +86,5 @@ local function listen_for_commands()
     end
 end
 
-modem.open(1)
+modem.open(settings.transmission_channel)
 parallel.waitForAny(relay_telemetry, listen_for_commands)

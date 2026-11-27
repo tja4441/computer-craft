@@ -1,3 +1,14 @@
+-- fusion_reactor_mon.lua
+--
+-- Receives and interprets transmissions from fusion_reactor_relay.lua and aux_fusion_relay.lua,
+-- then prints information to the terminal
+
+local settings = {
+    transmission_channel = 3,
+    transmission_timeout_ms = 10000
+}
+
+-- Helper Functions
 local function J_to_FE(J)
     return 0.4*J
 end
@@ -16,8 +27,9 @@ local function f_tostring_units(float)
     end
 end
 
+-- Display Functions
 local function display_reactor_stats(active, inj_rate, plasma_temp, case_temp, prod)
-    write("Fusion Reactor Status: ")
+    write("Fusion Reactor: ")
     if active then
         term.setTextColor(colors.green)
         print("\nACTIVE")
@@ -33,75 +45,89 @@ local function display_reactor_stats(active, inj_rate, plasma_temp, case_temp, p
     print("Energy Rate: " .. f_tostring_units(J_to_FE(prod)) .. "FE/t")
 end
 
+local function display_reactor_timeout(last_transmission_time)
+    write("Fusion Reactor: ")
+    term.setTextColor(colors.yellow)
+    print("\nTIMEOUT")
+    term.setTextColor(colors.white)
+
+    print("\nTime since last packet:")
+    print(time_tostring(os.epoch("utc") - last_transmission_time))
+    print("") -- maintain spacing
+    print("")
+end
+
 local function display_aux_stats(tritium, deuterium)
     print("Tritium %: " .. string.format("%.2f%%", tritium*100))
     print("Deuterium %: " .. string.format("%.2f%%", deuterium*100))
 end
 
-local function main()
-    local modem 
-    if pocket then
-        modem = peripheral.wrap("back")
+local function display_aux_timeout(last_transmission_time)
+    write("Aux. Telemetry: ")
+    term.setTextColor(colors.yellow)
+    print("\nTIMEOUT")
+    term.setTextColor(colors.white)
+
+    print("Time since last packet:")
+    print(time_tostring(os.epoch("utc") - last_transmission_time))
+end
+
+-- Main Program Loop
+local active = false
+local inj_rate = 0.0
+local plasma_temp = 0.0
+local case_temp = 0.0
+local production_rate = 0.0
+local tritium = 0.0
+local deuterium = 0.0
+
+local last_packet_time = 0
+local last_aux_packet_time = 0
+
+local modem = peripheral.find("modem")
+if modem then
+    modem.open(settings.transmission_channel)
+else
+    print("No modem found... terminating program")
+    return
+end
+
+while true do
+    -- Check for incoming packet
+    local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
+    if channel == settings.transmission_channel and packet.type == "REACTOR_TELEMETRY" then
+        last_packet_time = packet.timestamp
+        data = packet.payload
+
+        active = data.active
+        inj_rate = data.inj_rate
+        plasma_temp = data.plasma_temp
+        case_temp = data.case_temp
+        production_rate = data.production_rate
+    elseif channel == settings.transmission_channel and packet.type == "AUX_TELEMETRY" then
+        last_aux_packet_time = packet.timestamp
+        data = packet.payload
+
+        tritium = data.tritium
+        deuterium = data.deuterium
+    end
+
+    -- Print to screen
+    term.clear()
+    term.setCursorPos(1,1)
+    local current_time = os.epoch("utc")
+
+    if current_time - last_packet_time <= settings.transmission_timeout_ms then
+        display_reactor_stats(active, inj_rate, plasma_temp, case_temp, production_rate)
     else
-        modem = peripheral.wrap("top")
+        display_reactor_timeout(last_packet_time)
     end
     
-    if modem then
-        modem.open(3)
-    else
-        print("No modem found... terminating program")
-        return
-    end
+    print("")
 
-    local active = false
-    local inj_rate = 0.0
-    local plasma_temp = 0.0
-    local case_temp = 0.0
-    local production_rate = 0.0
-    local tritium = 0.0
-    local deuterium = 0.0
-
-    term.setTextColor(colors.red)
-    print("Fusion Reactor Disconnected")
-    term.setTextColor(colors.white)
-    while true do
-        local event, side, channel, replyChannel, packet = os.pullEvent("modem_message")
-        if channel == 3 and packet.type == "REACTOR_TELEMETRY" then
-            data = packet.payload
-            active = data.active
-            inj_rate = data.inj_rate
-            plasma_temp = data.plasma_temp
-            case_temp = data.case_temp
-            production_rate = data.production_rate
-        elseif channel == 3 and packet.type == "AUX_TELEMETRY" then
-            data = packet.payload
-            tritium = data.tritium
-            deuterium = data.deuterium
-        end
-        term.clear()
-        term.setCursorPos(1,1)
-        display_reactor_stats(active, inj_rate, plasma_temp, case_temp, production_rate)
-        print("")
+    if current_time - last_aux_packet_time <= settings.transmission_timeout_ms then
         display_aux_stats(tritium, deuterium)
+    else
+        display_aux_timeout(last_aux_packet_time)
     end
 end
-
-local function wait_for_quit()
-    local heldKeys = {}
-
-    while true do
-        local event, key = os.pullEvent()
-
-        if event == "key" then
-            heldKeys[key] = true
-
-            if (heldKeys[keys.leftCtrl] or heldKeys[keys.rightCtrl]) and heldKeys[keys.q] then
-                break
-            end
-        elseif event == "key_up" then
-            heldKeys[key] = nil
-        end
-    end
-end
-
-parallel.waitForAny(main, wait_for_quit)

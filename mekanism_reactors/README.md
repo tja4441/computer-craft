@@ -5,3 +5,10 @@ These scripts are designed to provide wireless control and monitoring capabiliti
 The system of Mekanism reactors and structures supported includes a fission reactor with a turbine, a fusion reactor, an induction matrix, and an SPS reactor is soon to come.
 
 [Insert description/diagram of setup here]
+
+| Subsystem | Channel |
+| :---: | :---: |
+| Fission Reactor/Aux | 1 |
+| Turbine | 2 |
+| Fusion Reactor/Aux | 3 |
+| Induction Matrix | 4 |

@@ -1,3 +1,14 @@
+-- fusion_reactor_relay.lua
+--
+-- Relays reactor telemetry to fusion_reactor_mon.lua
+
+local settings = {
+    transmission_channel = 3,
+    transmission_period_s = 1.0,
+    reactor_detection_retries = 4,
+    reactor_detection_interval_s = 5.0
+}
+
 local modem = peripheral.find("modem")
 
 if not modem then
@@ -15,11 +26,11 @@ local function getFormedFusionReactor()
 end
 
 local reactor = getFormedFusionReactor()
-local detection_retries = 4
+local detection_retries = settings.reactor_detection_retries
 
 while not reactor and detection_retries > 0 do
     print("Formed Fusion Reactor not found... Trying again (" .. detection_retries .. " left)")
-    sleep(5.0)
+    sleep(settings.reactor_detection_interval_s)
     reactor = getFormedFusionReactor()
     detection_retries = detection_retries - 1
 end
@@ -32,7 +43,6 @@ end
 print("Fusion Reactor connected! Transmitting telemetry...")
 
 while true do
-    -- pcall safely catches errors if the reactor unloads or breaks mid-run
     local ok, err = pcall(function()
         local data = {
             active = reactor.isIgnited(),
@@ -46,7 +56,7 @@ while true do
             timestamp = os.epoch("utc"),
             payload = data
         }
-        modem.transmit(3, 3, packet)
+        modem.transmit(settings.transmission_channel, settings.transmission_channel, packet)
     end)
 
     if not ok then
@@ -54,5 +64,5 @@ while true do
         return
     end
 
-    sleep(1)
+    sleep(settings.transmission_period_s)
 end
